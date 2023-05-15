@@ -308,7 +308,7 @@ function App() {
     <div className="App">
       <input type="file" onChange={handleFileUpload} />
       <Canvas style={{ width: "100%", height: "100%", position: "absolute" }}>
-        <ambientLight intensity={0.4} />
+        <ambientLight color="#ffffff" intensity={0.7} />
         <directionalLight
           position={[2.5, 8, 5]}
           intensity={1.0}
