@@ -237,10 +237,15 @@ import {
   PerspectiveCamera,
   useTexture,
   Environment,
+  TransformControls,
+  PivotControls,
+  Html,
+  useProgress,
+  Loader,
 } from "@react-three/drei";
 import * as THREE from "three";
-import { parseDxfFile } from "./dfx-utils";
 import "./App.css";
+import { parseDxfFile } from "./new-dxf";
 
 export function computeBoundingBoxAndCenter(group: any) {
   const box = new THREE.Box3().setFromObject(group);
@@ -253,7 +258,16 @@ export function computeBoundingBoxAndCenter(group: any) {
   return { box, size, center };
 }
 
-function DxfModel({ dxfData }: any) {
+function LoaderStatus() {
+  const { progress } = useProgress();
+  return (
+    <Html center>
+      <span style={{ color: "red" }}>Loading: {progress.toFixed(2)} %</span>
+    </Html>
+  );
+}
+
+function DxfModel({ dxfData, onLoaded }: any) {
   const [object3D, setObject3D] = useState(null);
   const { camera } = useThree();
 
@@ -266,27 +280,40 @@ function DxfModel({ dxfData }: any) {
       const { box, size, center } = computeBoundingBoxAndCenter(newObj);
       const maxSize = Math.max(size.x, size.y, size.z);
 
-      camera.position.copy(center).add(new THREE.Vector3(0, 0, maxSize * 2.5)); // Increase the multiplier
-      camera.far = maxSize * 5; // Adjust the camera's far plane
-      camera.near = 0.1; // Adjust the camera's near plane
+      camera.position.copy(center).add(new THREE.Vector3(0, 0, maxSize * 2.5));
       camera.updateProjectionMatrix();
       console.log(camera.position, box, center, size);
-    }
-  }, [dxfData, camera]);
 
-  return object3D ? <primitive object={object3D} /> : null;
+      // Call the onLoaded callback after the object is ready
+      onLoaded();
+    }
+  }, [dxfData, camera, onLoaded]);
+
+  return object3D ? (
+    <PivotControls>
+      <primitive object={object3D} />
+    </PivotControls>
+  ) : null;
 }
 
 function App() {
   const [dxfData, setDxfData] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleFileUpload = (event: any) => {
     const file = event.target.files[0];
     if (file) {
+      setIsLoading(true); // Start loading
       const reader = new FileReader();
-      reader.onload = (e: any) => setDxfData(e?.target?.result);
+      reader.onload = (e: any) => {
+        setDxfData(e?.target?.result);
+      };
       reader.readAsText(file);
     }
+  };
+
+  const handleModelLoaded = () => {
+    setIsLoading(false); // End loading when the model is ready
   };
 
   function Box({ position, color }: any) {
@@ -308,9 +335,11 @@ function App() {
     <div className="App">
       <input type="file" onChange={handleFileUpload} />
       <Canvas style={{ width: "100%", height: "100%", position: "absolute" }}>
-        <ambientLight color="#ffffff" intensity={0.7} />
+        {isLoading && <LoaderStatus />}
+        <ambientLight intensity={0.5} />
         <directionalLight
-          position={[2.5, 8, 5]}
+          position={[1, 2, 3]}
+          // color="red"
           intensity={1.0}
           castShadow
           shadow-mapSize-width={1024}
@@ -321,12 +350,14 @@ function App() {
           shadow-camera-top={10}
           shadow-camera-bottom={-10}
         />
-        <pointLight position={[10, 10, 10]} intensity={0.6} />
-        <DxfModel dxfData={dxfData} />
+        {/* <pointLight position={[10, 10, 10]} intensity={0.6} /> */}
+        <DxfModel dxfData={dxfData} onLoaded={handleModelLoaded} />
+
         {/* <Box color="#18a36e" position={[-1, 0, 3]} />
         <Box color="#f56f42" position={[1, 0, 3]} /> */}
-        {/* <gridHelper args={[100, 100]} /> */}
-        <OrbitControls />
+        <gridHelper args={[100, 100]} />
+        <OrbitControls makeDefault />
+        <Loader />
         {/* <Environment preset="sunset" background /> */}
       </Canvas>
     </div>

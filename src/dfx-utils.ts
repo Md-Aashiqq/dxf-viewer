@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import DxfParser from 'dxf-parser';
 import { computeBoundingBoxAndCenter } from './App';
 //@ts-ignore
-import * as earcut from "earcut";
 
 export function parseDxfFile(dxfData: any) {
   const parser = new DxfParser();
@@ -10,14 +9,13 @@ export function parseDxfFile(dxfData: any) {
 
   const group = new THREE.Group();
 
-  const totalEntities = dxf?.entities.length || 0;
-
   const faceVertices : any = [];
+  const faceColors : any = [];
 
   dxf?.entities.forEach((entity: any, index: number) => {
     let object;
     const entityColor = entity.color ? `#${entity.color.toString(16)}` : 0x0000ff;
-
+    // console.log(entity.type)
     switch (entity.type) {
       case 'LINE':
         const lineMaterial = new THREE.LineBasicMaterial({ color: entityColor });
@@ -61,17 +59,22 @@ export function parseDxfFile(dxfData: any) {
         object.position.set(entity.center.x, entity.center.y, entity.center.z);
         break;
 
+
       case 'POLYLINE':
         const polylineMaterial = new THREE.MeshStandardMaterial({ color: entityColor });
 
         const vertices = entity.vertices.map((vertex: any) => new THREE.Vector3(vertex.x, vertex.y, vertex.z));
-        const flatVertices = vertices.reduce((acc: any, v: any) => acc.concat([v.x, v.y, v.z]), []);
-        const triangles = earcut(flatVertices);
+
+        // Manually creating a fan triangulation
+        const indices = [];
+        for (let i = 1; i < vertices.length - 1; i++) {
+          indices.push(0, i, i + 1);
+        }
 
         const polylineGeometry = new THREE.BufferGeometry().setFromPoints(vertices);
-        polylineGeometry.setIndex(new THREE.BufferAttribute(new Uint16Array(triangles), 1));
-
-                object = new THREE.Mesh(polylineGeometry, polylineMaterial);
+        polylineGeometry.setIndex(indices);
+        polylineGeometry.computeVertexNormals();
+        object = new THREE.Mesh(polylineGeometry, polylineMaterial);
         break;
 
       case 'ELLIPSE':
@@ -106,24 +109,51 @@ export function parseDxfFile(dxfData: any) {
         const pointGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(entity.position.x, entity.position.y, entity.position.z)]);
         object = new THREE.Points(pointGeometry, pointMaterial);
         break;
-
+      
+      // case 'INSERT':
+      //   const block = blocks[entity.name];
+      //   if (!block) {
+      //     console.log(`Block ${entity.name} not found.`);
+      //     return;
+      //   }
+      //   const blockGroup = new THREE.Group();
+      //   blockGroup.position.set(entity.position.x, entity.position.y, entity.position.z);
+      //   block.entities.forEach((blockEntity: any) => {
+      //     const blockObject = createObject(blockEntity, blocks);
+      //     if (blockObject) {
+      //       blockGroup.add(blockObject);
+      //     }
+      //   });
+      //   object = blockGroup;
+      //   break;
+      
       case '3DFACE':
-        faceVertices.push(
-          entity.vertices[0].x, entity.vertices[0].y, entity.vertices[0].z,
-          entity.vertices[1].x, entity.vertices[1].y, entity.vertices[1].z,
-          entity.vertices[2].x, entity.vertices[2].y, entity.vertices[2].z
-        );
+        for (let i = 0; i < 3; i++) {
+          faceVertices.push(
+            entity.vertices[i].x,
+            entity.vertices[i].y,
+            entity.vertices[i].z
+          );
+          const color = new THREE.Color(entity.color ? `#${entity.color.toString(16)}` : 0xffa500);
+          // console.log(color);
+          faceColors.push(color.r, color.g, color.b);
+        }
 
         // If there is a fourth vertex and it is different from the third vertex, create a second triangular face.
         if (entity.vertices[3] &&
           (entity.vertices[3].x !== entity.vertices[2].x ||
             entity.vertices[3].y !== entity.vertices[2].y ||
             entity.vertices[3].z !== entity.vertices[2].z)) {
-          faceVertices.push(
-            entity.vertices[0].x, entity.vertices[0].y, entity.vertices[0].z,
-            entity.vertices[2].x, entity.vertices[2].y, entity.vertices[2].z,
-            entity.vertices[3].x, entity.vertices[3].y, entity.vertices[3].z
-          );
+          for (let i = 0; i < 3; i++) {
+            const index = i !== 2 ? i : 3;
+            faceVertices.push(
+              entity.vertices[index].x,
+              entity.vertices[index].y,
+              entity.vertices[index].z
+            );
+            const color = new THREE.Color(entity.color ? `#${entity.color.toString(16)}` : 0xffa500);
+            faceColors.push(color.r, color.g, color.b);
+          }
         }
         break;
 
@@ -137,25 +167,92 @@ export function parseDxfFile(dxfData: any) {
     }
   });
 
-  const faceMaterial = new THREE.MeshLambertMaterial({
-    color: 0xffa500,
-    side: THREE.DoubleSide,
-  });
-  const faceGeometry = new THREE.BufferGeometry();
 
+  const faceGeometry = new THREE.BufferGeometry();
   faceGeometry.setAttribute('position', new THREE.Float32BufferAttribute(faceVertices, 3));
+  faceGeometry.setAttribute('color', new THREE.Float32BufferAttribute(faceColors, 3));
   faceGeometry.computeVertexNormals();
+  const faceMaterial = new THREE.MeshLambertMaterial({
+    side: THREE.DoubleSide,
+    vertexColors: true
+  });
   const faceObject = new THREE.Mesh(faceGeometry, faceMaterial);
   group.add(faceObject);
 
   const { size, center } = computeBoundingBoxAndCenter(group);
-  const scale = 0.4 / Math.max(size  .x, size.y, size.z);
+  const scale = 0.4 / Math.max(size.x, size.y, size.z);
   group.scale.set(scale, scale, scale);
   group.position.sub(center.clone().multiplyScalar(scale));
 
   return group;
 }
 
+
+
+      // case 'POLYLINE':
+      //   const polylineMaterial = new THREE.MeshStandardMaterial({ color: entityColor });
+
+      //   const vertices = entity.vertices.map((vertex: any) => new THREE.Vector3(vertex.x, vertex.y, vertex.z));
+      //   const flatVertices = vertices.reduce((acc: any, v: any) => acc.concat([v.x, v.y, v.z]), []);
+      //   const triangles = earcut(flatVertices);
+
+      //   const polylineGeometry = new THREE.BufferGeometry().setFromPoints(vertices);
+      //   polylineGeometry.setIndex(new THREE.BufferAttribute(new Uint16Array(triangles), 1));
+
+      //   object = new THREE.Mesh(polylineGeometry, polylineMaterial);
+      //   break;
+
+  // const faceGeometry = new THREE.BufferGeometry();
+  // faceGeometry.setAttribute('position', new THREE.Float32BufferAttribute(faceVertices, 3));
+  // faceGeometry.setAttribute('color', new THREE.Float32BufferAttribute(faceColors, 3));
+
+  // faceGeometry.computeVertexNormals();
+
+  // // Instead of creating a new material for each face, we create one material with vertex colors.
+  // const faceMaterial = new THREE.MeshLambertMaterial({
+  //   vertexColors: THREE.VertexColors,
+  //   side: THREE.DoubleSide,
+  // });
+
+  // const faceObject = new THREE.Mesh(faceGeometry, faceMaterial);
+  // group.add(faceObject);
+
+  // const faceMaterial = new THREE.MeshLambertMaterial({
+  //   color: 0xc4c4c4,
+  //   side: THREE.DoubleSide,
+  // });
+  // const faceGeometry = new THREE.BufferGeometry();
+
+  // faceGeometry.setAttribute('position', new THREE.Float32BufferAttribute(faceVertices, 3));
+  // faceGeometry.computeVertexNormals();
+  // const faceObject = new THREE.Mesh(faceGeometry, faceMaterial);
+  // group.add(faceObject);
+
+
+ // case '3DFACE':
+      //   faceVertices.push(
+      //     entity.vertices[0].x, entity.vertices[0].y, entity.vertices[0].z,
+      //     entity.vertices[1].x, entity.vertices[1].y, entity.vertices[1].z,
+      //     entity.vertices[2].x, entity.vertices[2].y, entity.vertices[2].z
+      //   );
+
+      //   // If there is a fourth vertex and it is different from the third vertex, create a second triangular face.
+      //   if (entity.vertices[3] &&
+      //     (entity.vertices[3].x !== entity.vertices[2].x ||
+      //       entity.vertices[3].y !== entity.vertices[2].y ||
+      //       entity.vertices[3].z !== entity.vertices[2].z)) {
+      //     faceVertices.push(
+      //       entity.vertices[0].x, entity.vertices[0].y, entity.vertices[0].z,
+      //       entity.vertices[2].x, entity.vertices[2].y, entity.vertices[2].z,
+      //       entity.vertices[3].x, entity.vertices[3].y, entity.vertices[3].z
+      //     );
+      //   }
+
+      //   for (let i = 0; i < 3; i++) {
+      //     const color = new THREE.Color(entity.color ? `#${entity.color.toString(16)}` : 0xffa500);
+      //     faceColors.push(color.r, color.g, color.b);
+      //   }
+      //   break;
 
 
 
